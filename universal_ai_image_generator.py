@@ -1,264 +1,404 @@
 #!/usr/bin/env python3
 """
-Example usage of Universal AI Image Generator
-Shows various ways to use the generator programmatically
+Universal AI Image Generator - Standalone Version
+Supports: OpenAI DALL-E, Grok, Stability AI, Replicate, Together AI
 """
 
-from universal_ai_image_generator import UniversalImageGenerator
+import os
+import requests
+import json
+from datetime import datetime
+from pathlib import Path
 import time
-
-# Example 1: Basic Usage with Single Provider
-def example_basic():
-    print("\n=== Example 1: Basic Usage ===\n")
-    
-    generator = UniversalImageGenerator("example_images")
-    generator.add_provider('grok', 'your-grok-api-key-here')
-    
-    # Generate a single image
-    filepath = generator.generate(
-        provider='grok',
-        prompt='a serene mountain landscape at sunset'
-    )
-    
-    if filepath:
-        print(f"✓ Image saved: {filepath}")
+import base64
+from typing import Optional, Dict, Any
 
 
-# Example 2: Multiple Providers
-def example_multiple_providers():
-    print("\n=== Example 2: Using Multiple Providers ===\n")
+class UniversalImageGenerator:
+    def __init__(self, download_folder="ai_generated_images"):
+        """Initialize the Universal Image Generator"""
+        self.download_folder = download_folder
+        self.providers = {}
+        Path(self.download_folder).mkdir(parents=True, exist_ok=True)
+        print(f"✓ Download folder: {self.download_folder}")
     
-    generator = UniversalImageGenerator("multi_provider_images")
+    def add_provider(self, provider_name: str, api_key: str):
+        """Add an API provider"""
+        self.providers[provider_name.lower()] = api_key
+        print(f"✓ Added provider: {provider_name}")
     
-    # Add multiple providers
-    generator.add_provider('openai', 'sk-your-openai-key')
-    generator.add_provider('grok', 'xai-your-grok-key')
-    generator.add_provider('stability', 'sk-your-stability-key')
-    
-    prompt = "a futuristic cityscape at night"
-    
-    # Generate same prompt with different providers
-    print("Generating with OpenAI...")
-    generator.generate('openai', prompt, model='dall-e-3')
-    
-    time.sleep(2)
-    
-    print("Generating with Grok...")
-    generator.generate('grok', prompt)
-    
-    time.sleep(2)
-    
-    print("Generating with Stability AI...")
-    generator.generate('stability', prompt, width=1024, height=1024)
-
-
-# Example 3: Batch Generation
-def example_batch_generation():
-    print("\n=== Example 3: Batch Generation ===\n")
-    
-    generator = UniversalImageGenerator("batch_images")
-    generator.add_provider('grok', 'your-grok-api-key-here')
-    
-    prompts = [
-        "a peaceful zen garden",
-        "abstract geometric patterns in blue and gold",
-        "a cozy coffee shop interior",
-        "northern lights over snowy mountains",
-        "underwater coral reef scene"
-    ]
-    
-    for i, prompt in enumerate(prompts, 1):
-        print(f"\nGenerating image {i}/{len(prompts)}: {prompt}")
-        filepath = generator.generate('grok', prompt)
+    def generate_openai(self, prompt: str, model="dall-e-3", size="1024x1024", 
+                       quality="standard", style="vivid") -> Optional[Dict]:
+        """Generate image using OpenAI DALL-E"""
+        if 'openai' not in self.providers:
+            print("❌ OpenAI API key not configured")
+            return None
         
-        if filepath:
+        headers = {
+            "Authorization": f"Bearer {self.providers['openai']}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": model,
+            "prompt": prompt,
+            "n": 1,
+            "size": size
+        }
+        
+        if model == "dall-e-3":
+            payload["quality"] = quality
+            payload["style"] = style
+        
+        try:
+            print(f"🎨 Generating with OpenAI {model}...")
+            response = requests.post(
+                "https://api.openai.com/v1/images/generations",
+                headers=headers,
+                json=payload
+            )
+            response.raise_for_status()
+            data = response.json()
+            return {
+                'url': data['data'][0]['url'],
+                'provider': 'openai',
+                'model': model
+            }
+        except Exception as e:
+            print(f"❌ OpenAI Error: {e}")
+            if hasattr(e, 'response') and hasattr(e.response, 'text'):
+                print(f"Response: {e.response.text}")
+            return None
+    
+    def generate_grok(self, prompt: str, model="grok-2-vision-1212", size="1024x1024",
+                     quality="medium", style="natural") -> Optional[Dict]:
+        """Generate image using Grok (X.AI)"""
+        if 'grok' not in self.providers:
+            print("❌ Grok API key not configured")
+            return None
+        
+        headers = {
+            "Authorization": f"Bearer {self.providers['grok']}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": model,
+            "prompt": prompt,
+            "n": 1,
+            "size": size,
+            "quality": quality,
+            "style": style
+        }
+        
+        try:
+            print(f"🎨 Generating with Grok...")
+            response = requests.post(
+                "https://api.x.ai/v1/images/generations",
+                headers=headers,
+                json=payload
+            )
+            response.raise_for_status()
+            data = response.json()
+            return {
+                'url': data['data'][0]['url'],
+                'provider': 'grok',
+                'model': model
+            }
+        except Exception as e:
+            print(f"❌ Grok Error: {e}")
+            if hasattr(e, 'response') and hasattr(e.response, 'text'):
+                print(f"Response: {e.response.text}")
+            return None
+    
+    def generate_stability(self, prompt: str, model="stable-diffusion-xl-1024-v1-0",
+                          width=1024, height=1024, steps=30, cfg_scale=7) -> Optional[Dict]:
+        """Generate image using Stability AI"""
+        if 'stability' not in self.providers:
+            print("❌ Stability AI API key not configured")
+            return None
+        
+        headers = {
+            "Authorization": f"Bearer {self.providers['stability']}",
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
+        
+        payload = {
+            "text_prompts": [{"text": prompt}],
+            "cfg_scale": cfg_scale,
+            "height": height,
+            "width": width,
+            "steps": steps,
+            "samples": 1
+        }
+        
+        try:
+            print(f"🎨 Generating with Stability AI...")
+            response = requests.post(
+                f"https://api.stability.ai/v1/generation/{model}/text-to-image",
+                headers=headers,
+                json=payload
+            )
+            response.raise_for_status()
+            data = response.json()
+            image_data = data['artifacts'][0]['base64']
+            return {
+                'base64': image_data,
+                'provider': 'stability',
+                'model': model
+            }
+        except Exception as e:
+            print(f"❌ Stability AI Error: {e}")
+            if hasattr(e, 'response') and hasattr(e.response, 'text'):
+                print(f"Response: {e.response.text}")
+            return None
+    
+    def generate_replicate(self, prompt: str, model="stability-ai/sdxl",
+                          width=1024, height=1024, num_inference_steps=25) -> Optional[Dict]:
+        """Generate image using Replicate"""
+        if 'replicate' not in self.providers:
+            print("❌ Replicate API key not configured")
+            return None
+        
+        headers = {
+            "Authorization": f"Token {self.providers['replicate']}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "version": model,
+            "input": {
+                "prompt": prompt,
+                "width": width,
+                "height": height,
+                "num_inference_steps": num_inference_steps
+            }
+        }
+        
+        try:
+            print(f"🎨 Generating with Replicate...")
+            response = requests.post(
+                "https://api.replicate.com/v1/predictions",
+                headers=headers,
+                json=payload
+            )
+            response.raise_for_status()
+            data = response.json()
+            
+            prediction_url = data['urls']['get']
+            while True:
+                time.sleep(2)
+                status_response = requests.get(prediction_url, headers=headers)
+                status_data = status_response.json()
+                
+                if status_data['status'] == 'succeeded':
+                    return {
+                        'url': status_data['output'][0] if isinstance(status_data['output'], list) else status_data['output'],
+                        'provider': 'replicate',
+                        'model': model
+                    }
+                elif status_data['status'] == 'failed':
+                    print(f"❌ Generation failed: {status_data.get('error')}")
+                    return None
+                
+                print("⏳ Waiting...")
+        except Exception as e:
+            print(f"❌ Replicate Error: {e}")
+            if hasattr(e, 'response') and hasattr(e.response, 'text'):
+                print(f"Response: {e.response.text}")
+            return None
+    
+    def generate_together(self, prompt: str, model="black-forest-labs/FLUX.1-schnell",
+                         width=1024, height=1024, steps=4) -> Optional[Dict]:
+        """Generate image using Together AI"""
+        if 'together' not in self.providers:
+            print("❌ Together AI API key not configured")
+            return None
+        
+        headers = {
+            "Authorization": f"Bearer {self.providers['together']}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": model,
+            "prompt": prompt,
+            "width": width,
+            "height": height,
+            "steps": steps,
+            "n": 1
+        }
+        
+        try:
+            print(f"🎨 Generating with Together AI...")
+            response = requests.post(
+                "https://api.together.xyz/v1/images/generations",
+                headers=headers,
+                json=payload
+            )
+            response.raise_for_status()
+            data = response.json()
+            return {
+                'url': data['data'][0]['url'],
+                'provider': 'together',
+                'model': model
+            }
+        except Exception as e:
+            print(f"❌ Together AI Error: {e}")
+            if hasattr(e, 'response') and hasattr(e.response, 'text'):
+                print(f"Response: {e.response.text}")
+            return None
+    
+    def download_image(self, result: Dict, prompt: str) -> Optional[str]:
+        """Download image and save to folder"""
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            safe_prompt = "".join(c for c in prompt[:50] if c.isalnum() or c in (' ', '-', '_')).strip()
+            safe_prompt = safe_prompt.replace(' ', '_')
+            provider = result.get('provider', 'unknown')
+            filename = f"{timestamp}_{provider}_{safe_prompt}.png"
+            filepath = os.path.join(self.download_folder, filename)
+            
+            if 'url' in result:
+                print(f"⬇️  Downloading...")
+                img_response = requests.get(result['url'])
+                img_response.raise_for_status()
+                image_data = img_response.content
+            elif 'base64' in result:
+                print(f"⬇️  Decoding...")
+                image_data = base64.b64decode(result['base64'])
+            else:
+                print("❌ No image data")
+                return None
+            
+            with open(filepath, 'wb') as f:
+                f.write(image_data)
+            
             print(f"✓ Saved: {filepath}")
+            return filepath
+        except Exception as e:
+            print(f"❌ Download error: {e}")
+            return None
+    
+    def generate(self, provider: str, prompt: str, **kwargs) -> Optional[str]:
+        """Generate and download image"""
+        provider = provider.lower()
         
-        # Rate limiting
-        if i < len(prompts):
-            time.sleep(2)
+        if provider == 'openai':
+            result = self.generate_openai(prompt, **kwargs)
+        elif provider == 'grok':
+            result = self.generate_grok(prompt, **kwargs)
+        elif provider == 'stability':
+            result = self.generate_stability(prompt, **kwargs)
+        elif provider == 'replicate':
+            result = self.generate_replicate(prompt, **kwargs)
+        elif provider == 'together':
+            result = self.generate_together(prompt, **kwargs)
+        else:
+            print(f"❌ Unknown provider: {provider}")
+            return None
+        
+        if result:
+            return self.download_image(result, prompt)
+        return None
 
 
-# Example 4: Custom Settings for Each Provider
-def example_custom_settings():
-    print("\n=== Example 4: Provider-Specific Custom Settings ===\n")
+def main():
+    """Main interactive function"""
     
-    generator = UniversalImageGenerator("custom_settings_images")
-    generator.add_provider('openai', 'sk-your-openai-key')
-    generator.add_provider('grok', 'xai-your-grok-key')
-    generator.add_provider('stability', 'sk-your-stability-key')
+    print("=" * 70)
+    print("  UNIVERSAL AI IMAGE GENERATOR")
+    print("  OpenAI | Grok | Stability | Replicate | Together")
+    print("=" * 70)
     
-    # OpenAI with HD quality
-    print("OpenAI DALL-E 3 - HD Quality:")
-    generator.generate(
-        provider='openai',
-        prompt='a professional product photo of a watch',
-        model='dall-e-3',
-        size='1024x1024',
-        quality='hd',
-        style='natural'
-    )
+    download_folder = input("\n📁 Download folder (default: 'ai_images'): ").strip()
+    if not download_folder:
+        download_folder = "ai_images"
     
-    time.sleep(2)
+    generator = UniversalImageGenerator(download_folder)
     
-    # Grok with high quality
-    print("\nGrok - High Quality:")
-    generator.generate(
-        provider='grok',
-        prompt='an artistic portrait illustration',
-        size='1024x1024',
-        quality='high',
-        style='vivid'
-    )
+    print("\n" + "=" * 70)
+    print("CONFIGURE PROVIDERS (press Enter to skip)")
+    print("=" * 70)
     
-    time.sleep(2)
+    providers_config = {
+        'openai': 'OpenAI DALL-E',
+        'grok': 'Grok (X.AI)',
+        'stability': 'Stability AI',
+        'replicate': 'Replicate',
+        'together': 'Together AI'
+    }
     
-    # Stability AI with custom parameters
-    print("\nStability AI - Custom Parameters:")
-    generator.generate(
-        provider='stability',
-        prompt='a dramatic landscape painting',
-        width=1536,
-        height=1024,
-        steps=50,
-        cfg_scale=10
-    )
-
-
-# Example 5: Error Handling
-def example_error_handling():
-    print("\n=== Example 5: Error Handling ===\n")
+    for key, name in providers_config.items():
+        api_key = input(f"\n🔑 {name} API key: ").strip()
+        if api_key:
+            generator.add_provider(key, api_key)
     
-    generator = UniversalImageGenerator("error_handling_images")
-    generator.add_provider('grok', 'your-grok-api-key-here')
+    if not generator.providers:
+        print("\n❌ No providers configured!")
+        return
     
-    prompts = [
-        "a beautiful landscape",
-        "",  # Empty prompt - will fail
-        "a city skyline",
-    ]
+    print("\n" + "=" * 70)
+    print(f"✓ Ready! Providers: {', '.join(generator.providers.keys())}")
+    print("Type 'quit' to exit")
+    print("=" * 70)
     
-    successful = 0
-    failed = 0
+    image_count = 0
     
-    for prompt in prompts:
+    while True:
+        print("\n" + "-" * 70)
+        
+        if len(generator.providers) > 1:
+            provider = input(f"\n🤖 Provider ({'/'.join(generator.providers.keys())}): ").strip().lower()
+            if provider not in generator.providers:
+                provider = list(generator.providers.keys())[0]
+                print(f"Using: {provider}")
+        else:
+            provider = list(generator.providers.keys())[0]
+            print(f"\n🤖 Provider: {provider}")
+        
+        prompt = input("💭 Prompt (or 'quit'): ").strip()
+        
+        if prompt.lower() in ['quit', 'exit', 'q']:
+            print(f"\n✓ Generated {image_count} images. Goodbye!")
+            break
+        
         if not prompt:
-            print(f"⚠️  Skipping empty prompt")
-            failed += 1
+            print("⚠️  Empty prompt!")
             continue
         
-        print(f"\nGenerating: {prompt}")
-        filepath = generator.generate('grok', prompt)
+        kwargs = {}
+        custom = input("Custom settings? (y/n): ").strip().lower()
+        
+        if custom == 'y':
+            if provider == 'openai':
+                model = input("  Model (dall-e-2/dall-e-3): ").strip()
+                if model: kwargs['model'] = model
+                size = input("  Size (1024x1024/1792x1024/1024x1792): ").strip()
+                if size: kwargs['size'] = size
+                
+            elif provider == 'grok':
+                size = input("  Size (1024x1024/1792x1024/etc): ").strip()
+                if size: kwargs['size'] = size
+                quality = input("  Quality (low/medium/high): ").strip()
+                if quality: kwargs['quality'] = quality
+                
+            elif provider == 'stability':
+                width = input("  Width (1024): ").strip()
+                if width: kwargs['width'] = int(width)
+                height = input("  Height (1024): ").strip()
+                if height: kwargs['height'] = int(height)
+        
+        filepath = generator.generate(provider, prompt, **kwargs)
         
         if filepath:
-            successful += 1
-            print(f"✓ Success")
+            image_count += 1
+            print(f"\n✅ Total: {image_count}")
         else:
-            failed += 1
-            print(f"✗ Failed")
+            print("\n⚠️  Failed!")
         
         time.sleep(1)
-    
-    print(f"\n📊 Results: {successful} successful, {failed} failed")
-
-
-# Example 6: Different Image Sizes
-def example_different_sizes():
-    print("\n=== Example 6: Different Image Sizes ===\n")
-    
-    generator = UniversalImageGenerator("size_examples")
-    generator.add_provider('grok', 'your-grok-api-key-here')
-    
-    prompt = "a minimalist logo design"
-    
-    sizes = ['512x512', '1024x1024', '1792x1024', '1024x1792']
-    
-    for size in sizes:
-        print(f"\nGenerating {size} image...")
-        generator.generate('grok', f"{prompt} - {size}", size=size)
-        time.sleep(2)
-
-
-# Example 7: Quality Comparison
-def example_quality_comparison():
-    print("\n=== Example 7: Quality Comparison ===\n")
-    
-    generator = UniversalImageGenerator("quality_comparison")
-    generator.add_provider('grok', 'your-grok-api-key-here')
-    
-    prompt = "a detailed illustration of a dragon"
-    qualities = ['low', 'medium', 'high']
-    
-    for quality in qualities:
-        print(f"\nGenerating with {quality} quality...")
-        generator.generate('grok', f"{prompt} - {quality}", quality=quality)
-        time.sleep(2)
-
-
-# Example 8: Creative Variations
-def example_creative_variations():
-    print("\n=== Example 8: Creative Variations ===\n")
-    
-    generator = UniversalImageGenerator("creative_variations")
-    generator.add_provider('grok', 'your-grok-api-key-here')
-    
-    base_prompt = "a tree"
-    
-    variations = [
-        "a tree in spring with cherry blossoms",
-        "a tree in summer with lush green leaves",
-        "a tree in autumn with golden foliage",
-        "a tree in winter covered in snow"
-    ]
-    
-    for variation in variations:
-        print(f"\nGenerating: {variation}")
-        generator.generate('grok', variation)
-        time.sleep(2)
-
-
-# Example 9: Using All Providers for Comparison
-def example_provider_comparison():
-    print("\n=== Example 9: Provider Comparison ===\n")
-    
-    generator = UniversalImageGenerator("provider_comparison")
-    
-    # Configure all providers
-    generator.add_provider('openai', 'sk-your-openai-key')
-    generator.add_provider('grok', 'xai-your-grok-key')
-    generator.add_provider('stability', 'sk-your-stability-key')
-    generator.add_provider('together', 'your-together-key')
-    
-    prompt = "a photorealistic portrait of a person"
-    
-    # Generate with each provider
-    for provider in generator.providers.keys():
-        print(f"\nGenerating with {provider}...")
-        generator.generate(provider, prompt)
-        time.sleep(3)
-
-
-# Main function to run examples
-def main():
-    print("=" * 70)
-    print("  UNIVERSAL AI IMAGE GENERATOR - EXAMPLES")
-    print("=" * 70)
-    print("\nThese examples show different ways to use the generator.")
-    print("Make sure to replace API keys with your actual keys!\n")
-    
-    # Uncomment the examples you want to run:
-    
-    # example_basic()
-    # example_multiple_providers()
-    # example_batch_generation()
-    # example_custom_settings()
-    # example_error_handling()
-    # example_different_sizes()
-    # example_quality_comparison()
-    # example_creative_variations()
-    # example_provider_comparison()
-    
-    print("\n✓ Example script ready! Uncomment the examples you want to run.")
 
 
 if __name__ == "__main__":
